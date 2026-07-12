@@ -1,0 +1,7 @@
+/src/
+/out/
+/tools/
+*.o
+*.a
+*.log
+SIZE_REPORT.md
