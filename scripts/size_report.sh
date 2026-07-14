@@ -51,16 +51,15 @@ echo "| Preset | .a sum | probe stripped | configs |"
 echo "|--------|-------:|---------------:|---------|"
 
 shopt -s nullglob
-for dir in "$OUT"/*/; do
-  preset="$(basename "$dir")"
+for cfg_file in "$ROOT/configs"/*.conf; do
+  preset="$(basename "$cfg_file" .conf)"
+  dir="$OUT/$preset"
+  [[ -d "$dir" ]] || continue
   a_sum=$(sum_libs "$dir")
   probe=$(bytes "$dir/bin/kineticon_probe")
-  cfg=""
-  if [[ -f "$ROOT/configs/${preset}.conf" ]]; then
-    # shellcheck disable=SC1090
-    source "$ROOT/configs/${preset}.conf"
-    cfg="${PRESET_SUMMARY:-}"
-  fi
+  # shellcheck disable=SC1090
+  source "$cfg_file"
+  cfg="${PRESET_SUMMARY:-}"
   echo "| $(bt "$preset") | $(human "$a_sum") | $(human "$probe") | $cfg |"
 done
 
@@ -70,8 +69,10 @@ echo
 echo "| Preset | avutil | avcodec | avformat | swscale |"
 echo "|--------|-------:|--------:|---------:|--------:|"
 
-for dir in "$OUT"/*/; do
-  preset="$(basename "$dir")"
+for cfg_file in "$ROOT/configs"/*.conf; do
+  preset="$(basename "$cfg_file" .conf)"
+  dir="$OUT/$preset"
+  [[ -d "$dir" ]] || continue
   echo "| $(bt "$preset") | $(human "$(bytes "$dir/lib/libavutil.a")") | $(human "$(bytes "$dir/lib/libavcodec.a")") | $(human "$(bytes "$dir/lib/libavformat.a")") | $(human "$(bytes "$dir/lib/libswscale.a")") |"
 done
 
@@ -80,5 +81,6 @@ echo "## Notes"
 echo
 echo "- Prefer **probe stripped** when budgeting Daggermap binary growth."
 echo "- Cross-compile (Windows/macOS/Android) sizes will differ; re-run per target before shipping."
-echo "- VP9 decoder tables dominate growth past H.264-only."
+echo "- VP9 decoder tables dominate growth past H.264-only; image codecs are comparatively cheap."
 echo "- Host build used nasm (x86asm enabled). Without nasm, configure needs --disable-x86asm (slower; size differs)."
+echo "- AV1 here is FFmpeg's native LGPL decoder (AOMedia royalty-free intent; not dav1d/libaom)."

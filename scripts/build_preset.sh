@@ -76,6 +76,7 @@ make install
 PROBE_SRC="$ROOT/scripts/probe_link.c"
 PROBE_BIN="$OUT/bin/kineticon_probe"
 mkdir -p "$OUT/bin"
+# -lz required when presets enable zlib (PNG/APNG/lossless WebP).
 cc -O2 -s \
   -I"$OUT/include" \
   "$PROBE_SRC" \
@@ -83,20 +84,8 @@ cc -O2 -s \
   "$OUT/lib/libavcodec.a" \
   "$OUT/lib/libswscale.a" \
   "$OUT/lib/libavutil.a" \
-  -lm -lpthread \
-  -o "$PROBE_BIN" 2>"$OUT/probe_link.log" || {
-    echo "probe link failed; see $OUT/probe_link.log" >&2
-    # Extra libs some configs need
-    cc -O2 -s \
-      -I"$OUT/include" \
-      "$PROBE_SRC" \
-      "$OUT/lib/libavformat.a" \
-      "$OUT/lib/libavcodec.a" \
-      "$OUT/lib/libswscale.a" \
-      "$OUT/lib/libavutil.a" \
-      -lm -lpthread -lz \
-      -o "$PROBE_BIN"
-  }
+  -lm -lpthread -lz \
+  -o "$PROBE_BIN" 2>"$OUT/probe_link.log"
 
 echo "installed $PRESET -> $OUT"
 ls -lh "$OUT/lib"/*.a "$PROBE_BIN"

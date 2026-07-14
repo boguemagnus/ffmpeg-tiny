@@ -11,7 +11,7 @@ OUT      := $(ROOT)/out
 SCRIPTS  := $(ROOT)/scripts
 CONFIGS  := $(ROOT)/configs
 
-PRESETS ?= h264 h264_vp8 h264_vp8_vp9 h264_vp8_vp9_extra
+PRESETS ?= h264 h264_vp8 h264_vp8_vp9 h264_vp8_vp9_extra h264_vp8_vp9_extra_images
 PRESET  ?= h264
 
 JOBS ?= $(shell nproc 2>/dev/null || echo 4)
@@ -52,4 +52,4 @@ clean:
 	rm -rf $(OUT)
 
 clean-all: clean
-	rm -rf $(SRC)/ffbuild-* $(foreach p,$(PRESETS),$(SRC)/build-$(p))
+	rm -rf $(SRC)/ffbuild-* $(SRC)/build-*
