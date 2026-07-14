@@ -37,8 +37,97 @@ if [[ -f "$stamp" ]] && [[ "$stamp" -nt "$CFG" ]] && [[ -f "$BUILD/ffbuild/confi
   need_cfg=0
 fi
 
+# Detect current platform (default to linux if environment variable is missing)
+PLATFORM="${TARGET_PLATFORM:-linux}"
+
+# Base architecture / cross-compile flags
+EXTRA_CONF_ARGS=()
+PROBE_CC="cc"
+PROBE_LDFLAGS=("-lm" "-lpthread" "-lz")
+
+case "$PLATFORM" in
+  linux)
+    # Native Linux build; defaults are fine
+    ;;
+
+  windows)
+    # Cross-compile to x64 Windows using MinGW toolchain
+    EXTRA_CONF_ARGS+=(
+      "--target-os=mingw32" 
+      "--cross-prefix=x86_64-w64-mingw32-" 
+      "--arch=x86_64"
+    )
+    PROBE_CC="x86_64-w64-mingw32-gcc"
+    # Windows doesn't strictly link -lm or -lpthread like Linux does
+    PROBE_LDFLAGS=("-lz") 
+    ;;
+
+  macos)
+    # Native Apple Silicon build on macOS runner
+    EXTRA_CONF_ARGS+=(
+      "--target-os=darwin" 
+      "--arch=arm64"
+    )
+    ;;
+
+  ios)
+    # Dynamically find the iOS SDK sysroot path on macOS
+    SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+    
+    EXTRA_CONF_ARGS+=(
+      "--target-os=darwin"
+      "--arch=arm64"
+      "--enable-cross-compile"
+      "--cc=$(xcrun --sdk iphoneos -f clang)"
+      "--extra-cflags=-arch arm64 -miphoneos-version-min=13.0 -isysroot $SDK_PATH"
+      "--extra-ldflags=-arch arm64 -miphoneos-version-min=13.0 -isysroot $SDK_PATH"
+    )
+    ;;
+
+  android)
+    # 1. Cascaded search to find a valid NDK directory
+    NDK_ROOT=""
+    for candidate in \
+      "${ANDROID_NDK_HOME:-}" \
+      "${ANDROID_NDK_LATEST_HOME:-}" \
+      "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk-bundle" \
+      $(ls -d ${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk/* 2>/dev/null | sort -V | tail -n 1); do
+      if [[ -d "$candidate" ]]; then
+        NDK_ROOT="$candidate"
+        break
+      fi
+    done
+
+    if [[ -z "$NDK_ROOT" ]]; then
+      echo "Error: Android NDK could not be located." >&2
+      exit 1
+    fi
+
+    TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64"
+    
+    # We use the explicit compiler script, which already self-packages target, sysroot, and headers.
+    # FFmpeg requires '--cc' and '--cxx' for cross-compilation configurations.
+    CC_COMPILER="$TOOLCHAIN/bin/aarch64-linux-android33-clang"
+    CXX_COMPILER="$TOOLCHAIN/bin/aarch64-linux-android33-clang++"
+    
+    # Ensure the target compiler actually exists at the resolved path
+    if [[ ! -x "$CC_COMPILER" ]]; then
+      echo "Error: Compiler not found at $CC_COMPILER" >&2
+      exit 1
+    fi
+
+    EXTRA_CONF_ARGS+=(
+      "--target-os=android"
+      "--arch=aarch64"
+      "--enable-cross-compile"
+      "--cc=$CC_COMPILER"
+      "--cxx=$CXX_COMPILER"
+    )
+    ;;
+esac
+
 if [[ "$need_cfg" -eq 1 ]]; then
-  echo "configure $PRESET -> $OUT"
+  echo "configure $PRESET [$PLATFORM] -> $OUT"
   # Expand PRESET_ARGS as words; configs define a bash array.
   "$SRC/configure" \
     --prefix="$OUT" \
@@ -64,6 +153,7 @@ if [[ "$need_cfg" -eq 1 ]]; then
     --disable-postproc \
     --enable-protocol=file \
     --enable-small \
+    "${EXTRA_CONF_ARGS[@]}" \
     "${PRESET_ARGS[@]}"
   date -u +%Y-%m-%dT%H:%M:%SZ > "$stamp"
 fi
@@ -71,21 +161,5 @@ fi
 make -j"$JOBS"
 make install
 
-# Also link a tiny probe binary so we can measure *linked* stripped size,
-# not just .a archive bloat (archives contain unused objects).
-PROBE_SRC="$ROOT/scripts/probe_link.c"
-PROBE_BIN="$OUT/bin/kineticon_probe"
-mkdir -p "$OUT/bin"
-# -lz required when presets enable zlib (PNG/APNG/lossless WebP).
-cc -O2 -s \
-  -I"$OUT/include" \
-  "$PROBE_SRC" \
-  "$OUT/lib/libavformat.a" \
-  "$OUT/lib/libavcodec.a" \
-  "$OUT/lib/libswscale.a" \
-  "$OUT/lib/libavutil.a" \
-  -lm -lpthread -lz \
-  -o "$PROBE_BIN" 2>"$OUT/probe_link.log"
-
-echo "installed $PRESET -> $OUT"
-ls -lh "$OUT/lib"/*.a "$PROBE_BIN"
+echo "installed $PRESET [$PLATFORM] -> $OUT"
+ls -lh "$OUT/lib"/*.a

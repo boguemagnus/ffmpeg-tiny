@@ -22,7 +22,6 @@ all: sizes
 
 help:
 	@echo "Presets: $(PRESETS)"
-	@echo "  make sizes"
 	@echo "  make build PRESET=<name>"
 
 check-src:
@@ -34,15 +33,6 @@ check-src:
 
 build: check-src
 	$(SCRIPTS)/build_preset.sh $(PRESET)
-
-sizes: check-src
-	@for p in $(PRESETS); do \
-		echo "======== building $$p ========"; \
-		$(SCRIPTS)/build_preset.sh $$p || exit 1; \
-	done
-	$(SCRIPTS)/size_report.sh > $(ROOT)/SIZE_REPORT.md
-	@echo "Wrote $(ROOT)/SIZE_REPORT.md"
-	@cat $(ROOT)/SIZE_REPORT.md
 
 report:
 	$(SCRIPTS)/size_report.sh > $(ROOT)/SIZE_REPORT.md

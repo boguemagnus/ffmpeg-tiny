@@ -1,0 +1,61 @@
+name: Build Precompiled FFmpeg Static Libraries
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build FFmpeg (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            os: ubuntu-latest
+          - target: windows
+            os: ubuntu-latest
+          - target: macos
+            os: macos-14
+          - target: ios
+            os: macos-14
+          - target: android
+            os: ubuntu-latest
+
+    steps:
+      - name: Checkout ffmpeg-tiny
+        uses: actions/checkout@v4
+
+      - name: Clone official FFmpeg (n7.1)
+        run: git clone --depth 1 --branch n7.1 https://github.com/FFmpeg/FFmpeg.git src
+
+      - name: Setup Windows Cross-Compiler (Linux Host)
+        if: matrix.target == 'windows'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 libz-mingw-w64-dev
+
+      # --- Build Orchestration ---
+      - name: Install Assembly Compiler (Linux/Windows Host)
+        if: matrix.target == 'linux' || matrix.target == 'windows' || matrix.target == 'android'
+        run: sudo apt-get update && sudo apt-get install -y nasm
+
+      - name: Compile FFmpeg Preset
+        run: |
+          export TARGET_PLATFORM="${{ matrix.target }}"
+          make build PRESET=h264_vp8_vp9_extra_images
+        shell: bash
+
+      # --- Collect Artifacts ---
+      - name: Compress Build Artifacts
+        run: |
+          mkdir -p staging
+          cp -R out/h264_vp8_vp9_extra_images/lib staging/
+          cp -R out/h264_vp8_vp9_extra_images/include staging/
+        shell: bash
+
+      - name: Upload Static Libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-tiny-${{ matrix.target }}
+          path: staging/
