@@ -1,8 +1,8 @@
 # ffmpeg-tiny
 
-Minimal, self-compiled FFmpeg builds for Daggermap video backgrounds (and optional image decode).
+Minimal, self-compiled FFmpeg builds tailored to my needs.
 
-Sibling of the ApoC monorepo (`../C`). Produces small static `libav*` archives (and optional shared objects) with only the demuxers/decoders Daggermap needs. Consumed later by `kineticon` behind `DAGGERMAP_VIDEO=1`; the `*_extra_images` preset also backs an FFmpeg path in the image API alongside stb_image.
+Produces small static `libav*` archives (and optional shared objects) with only the demuxers/decoders desired.
 
 ## Why
 
@@ -52,4 +52,4 @@ AV1 is included via FFmpeg's native decoder (LGPL). AOMedia publishes a royalty-
 
 ## Pin
 
-Default source pin: FFmpeg **n7.1**. Bump deliberately; re-run `make sizes` after upgrades.
+Default source pin: FFmpeg **n7.1**.
