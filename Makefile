@@ -11,7 +11,7 @@ OUT      := $(ROOT)/out
 SCRIPTS  := $(ROOT)/scripts
 CONFIGS  := $(ROOT)/configs
 
-PRESETS ?= h264 h264_vp8 h264_vp8_vp9 h264_vp8_vp9_extra h264_vp8_vp9_extra_images
+PRESETS ?= h264 h264_vp8 h264_vp8_vp9 h264_vp8_vp9_extra h264_vp8_vp9_extra_images h264_vp8_vp9_extra_images_hw
 PRESET  ?= h264
 
 JOBS ?= $(shell nproc 2>/dev/null || echo 4)

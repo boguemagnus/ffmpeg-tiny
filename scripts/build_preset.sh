@@ -15,6 +15,12 @@ if [[ -x "$ROOT/tools/nasm-prefix/bin/nasm" ]]; then
   export PATH="$ROOT/tools/nasm-prefix/bin:$PATH"
 fi
 
+# Prefer vendored Vulkan headers (see scripts/ensure_vulkan_headers.sh).
+# Ubuntu apt libvulkan-dev is often < 1.3.277 required by FFmpeg n7.1.
+if [[ -f "$ROOT/tools/pkgconfig/vulkan.pc" ]]; then
+  export PKG_CONFIG_PATH="$ROOT/tools/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+fi
+
 if [[ ! -f "$CFG" ]]; then
   echo "unknown preset: $PRESET (missing $CFG)" >&2
   exit 1
@@ -30,15 +36,10 @@ source "$CFG"
 mkdir -p "$BUILD" "$OUT"
 cd "$BUILD"
 
-# Reconfigure only when conf or configure stamp changes.
-stamp="$BUILD/.configure.stamp"
-need_cfg=1
-if [[ -f "$stamp" ]] && [[ "$stamp" -nt "$CFG" ]] && [[ -f "$BUILD/ffbuild/config.mak" ]]; then
-  need_cfg=0
-fi
-
 # Detect current platform (default to linux if environment variable is missing)
 PLATFORM="${TARGET_PLATFORM:-linux}"
+# Windows DX11 alt build: HW_API=d3d11; default Vulkan for linux/windows Vulkan SKUs.
+HW_API="${HW_API:-}"
 
 # Base architecture / cross-compile flags
 EXTRA_CONF_ARGS=()
@@ -53,19 +54,19 @@ case "$PLATFORM" in
   windows)
     # Cross-compile to x64 Windows using MinGW toolchain
     EXTRA_CONF_ARGS+=(
-      "--target-os=mingw32" 
-      "--cross-prefix=x86_64-w64-mingw32-" 
+      "--target-os=mingw32"
+      "--cross-prefix=x86_64-w64-mingw32-"
       "--arch=x86_64"
     )
     PROBE_CC="x86_64-w64-mingw32-gcc"
     # Windows doesn't strictly link -lm or -lpthread like Linux does
-    PROBE_LDFLAGS=("-lz") 
+    PROBE_LDFLAGS=("-lz")
     ;;
 
   macos)
     # Native Apple Silicon build on macOS runner
     EXTRA_CONF_ARGS+=(
-      "--target-os=darwin" 
+      "--target-os=darwin"
       "--arch=arm64"
     )
     ;;
@@ -73,7 +74,7 @@ case "$PLATFORM" in
   ios)
     # Dynamically find the iOS SDK sysroot path on macOS
     SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-    
+
     EXTRA_CONF_ARGS+=(
       "--target-os=darwin"
       "--arch=arm64"
@@ -104,12 +105,12 @@ case "$PLATFORM" in
     fi
 
     TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64"
-    
+
     # We use the explicit compiler script, which already self-packages target, sysroot, and headers.
     # FFmpeg requires '--cc' and '--cxx' for cross-compilation configurations.
     CC_COMPILER="$TOOLCHAIN/bin/aarch64-linux-android33-clang"
     CXX_COMPILER="$TOOLCHAIN/bin/aarch64-linux-android33-clang++"
-    
+
     # Ensure the target compiler actually exists at the resolved path
     if [[ ! -x "$CC_COMPILER" ]]; then
       echo "Error: Compiler not found at $CC_COMPILER" >&2
@@ -126,8 +127,75 @@ case "$PLATFORM" in
     ;;
 esac
 
+# GPU-aligned hwaccel for presets that set PRESET_ENABLE_HW=1.
+# Soft video decoders in PRESET_ARGS remain as FFmpeg hwaccel shells.
+# Vulkan needs headers only at build time (no GPU on the builder).
+append_vulkan_hwaccel() {
+  local vk_inc="$ROOT/tools/vulkan-headers/include"
+  EXTRA_CONF_ARGS+=(
+    "--enable-vulkan"
+    "--enable-hwaccel=h264_vulkan,av1_vulkan"
+  )
+  # MinGW (and some hosts) won't see /usr/include; force vendored headers when present.
+  if [[ -d "$vk_inc" ]]; then
+    EXTRA_CONF_ARGS+=("--extra-cflags=-I${vk_inc}")
+  fi
+}
+
+if [[ "${PRESET_ENABLE_HW:-0}" == "1" ]]; then
+  case "$PLATFORM" in
+    linux)
+      append_vulkan_hwaccel
+      ;;
+    windows)
+      case "${HW_API:-vulkan}" in
+        d3d11)
+          EXTRA_CONF_ARGS+=(
+            "--enable-d3d11va"
+            "--enable-hwaccel=h264_d3d11va,h264_d3d11va2,vp9_d3d11va,vp9_d3d11va2,av1_d3d11va,av1_d3d11va2"
+          )
+          ;;
+        vulkan)
+          append_vulkan_hwaccel
+          ;;
+        *)
+          echo "Error: unsupported HW_API=${HW_API} (use vulkan or d3d11)" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    macos|ios)
+      EXTRA_CONF_ARGS+=(
+        "--enable-videotoolbox"
+        "--enable-hwaccel=h264_videotoolbox,vp9_videotoolbox,mpeg4_videotoolbox"
+      )
+      ;;
+    android)
+      EXTRA_CONF_ARGS+=(
+        "--enable-jni"
+        "--enable-mediacodec"
+        "--enable-decoder=h264_mediacodec,mpeg4_mediacodec,vp8_mediacodec,vp9_mediacodec,av1_mediacodec"
+      )
+      ;;
+    *)
+      echo "Error: PRESET_ENABLE_HW=1 unsupported for PLATFORM=$PLATFORM" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# Reconfigure when conf, script, platform, or HW_API identity changes.
+stamp="$BUILD/.configure.stamp"
+stamp_id="${PLATFORM}:${HW_API:-}:${PRESET_ENABLE_HW:-0}"
+need_cfg=1
+if [[ -f "$stamp" ]] && [[ "$stamp" -nt "$CFG" ]] && [[ "$stamp" -nt "$0" ]] \
+  && [[ -f "$BUILD/ffbuild/config.mak" ]] \
+  && [[ "$(cat "$stamp" 2>/dev/null | head -1)" == "$stamp_id" ]]; then
+  need_cfg=0
+fi
+
 if [[ "$need_cfg" -eq 1 ]]; then
-  echo "configure $PRESET [$PLATFORM] -> $OUT"
+  echo "configure $PRESET [$PLATFORM${HW_API:+/$HW_API}] -> $OUT"
   # Expand PRESET_ARGS as words; configs define a bash array.
   "$SRC/configure" \
     --prefix="$OUT" \
@@ -155,11 +223,11 @@ if [[ "$need_cfg" -eq 1 ]]; then
     --enable-small \
     "${EXTRA_CONF_ARGS[@]}" \
     "${PRESET_ARGS[@]}"
-  date -u +%Y-%m-%dT%H:%M:%SZ > "$stamp"
+  printf '%s\n%s\n' "$stamp_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$stamp"
 fi
 
 make -j"$JOBS"
 make install
 
-echo "installed $PRESET [$PLATFORM] -> $OUT"
+echo "installed $PRESET [$PLATFORM${HW_API:+/$HW_API}] -> $OUT"
 ls -lh "$OUT/lib"/*.a
