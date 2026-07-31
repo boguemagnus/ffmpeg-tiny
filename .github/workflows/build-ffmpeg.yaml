@@ -37,6 +37,9 @@ jobs:
           - artifact: ios
             target: ios
             os: macos-14
+          - artifact: ios-simulator
+            target: ios-simulator
+            os: macos-14
           - artifact: android
             target: android
             os: ubuntu-latest

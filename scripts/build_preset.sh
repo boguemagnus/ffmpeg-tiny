@@ -72,7 +72,7 @@ case "$PLATFORM" in
     ;;
 
   ios)
-    # Dynamically find the iOS SDK sysroot path on macOS
+    # Dynamically find the iOS device SDK sysroot path on macOS
     SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
 
     EXTRA_CONF_ARGS+=(
@@ -82,6 +82,20 @@ case "$PLATFORM" in
       "--cc=$(xcrun --sdk iphoneos -f clang)"
       "--extra-cflags=-arch arm64 -miphoneos-version-min=13.0 -isysroot $SDK_PATH"
       "--extra-ldflags=-arch arm64 -miphoneos-version-min=13.0 -isysroot $SDK_PATH"
+    )
+    ;;
+
+  ios-simulator)
+    # arm64 iPhone Simulator (Apple Silicon). Device .a cannot link into sim.
+    SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
+
+    EXTRA_CONF_ARGS+=(
+      "--target-os=darwin"
+      "--arch=arm64"
+      "--enable-cross-compile"
+      "--cc=$(xcrun --sdk iphonesimulator -f clang)"
+      "--extra-cflags=-arch arm64 -mios-simulator-version-min=13.0 -isysroot $SDK_PATH"
+      "--extra-ldflags=-arch arm64 -mios-simulator-version-min=13.0 -isysroot $SDK_PATH"
     )
     ;;
 
@@ -164,7 +178,7 @@ if [[ "${PRESET_ENABLE_HW:-0}" == "1" ]]; then
           ;;
       esac
       ;;
-    macos|ios)
+    macos|ios|ios-simulator)
       EXTRA_CONF_ARGS+=(
         "--enable-videotoolbox"
         "--enable-hwaccel=h264_videotoolbox,vp9_videotoolbox,mpeg4_videotoolbox"
