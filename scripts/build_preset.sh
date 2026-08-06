@@ -7,8 +7,7 @@ PRESET="${1:?usage: build_preset.sh <preset>}"
 CFG="$ROOT/configs/${PRESET}.conf"
 SRC="$ROOT/src"
 OUT="$ROOT/out/${PRESET}"
-BUILD="$SRC/build-${PRESET}"
-JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
+JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 
 # Prefer local nasm if present (no root install required).
 if [[ -x "$ROOT/tools/nasm-prefix/bin/nasm" ]]; then
@@ -33,18 +32,23 @@ fi
 # shellcheck disable=SC1090
 source "$CFG"
 
-mkdir -p "$BUILD" "$OUT"
-cd "$BUILD"
-
 # Detect current platform (default to linux if environment variable is missing)
 PLATFORM="${TARGET_PLATFORM:-linux}"
 # Windows DX11 alt build: HW_API=d3d11; default Vulkan for linux/windows Vulkan SKUs.
 HW_API="${HW_API:-}"
 
+# Isolate object trees per platform (+ HW_API) so macos vs macos-x86_64 (and
+# windows vulkan vs d3d11) can coexist in one workspace.
+BUILD="$SRC/build-${PRESET}-${PLATFORM}${HW_API:+-${HW_API}}"
+
+mkdir -p "$BUILD" "$OUT"
+cd "$BUILD"
+
 # Base architecture / cross-compile flags
 EXTRA_CONF_ARGS=()
 PROBE_CC="cc"
 PROBE_LDFLAGS=("-lm" "-lpthread" "-lz")
+MACOS_MIN_VERSION="${MACOS_MIN_VERSION:-11.0}"
 
 case "$PLATFORM" in
   linux)
@@ -64,10 +68,28 @@ case "$PLATFORM" in
     ;;
 
   macos)
-    # Native Apple Silicon build on macOS runner
+    # Apple Silicon (arm64). Explicit -arch so this is stable on any Mac host.
+    SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
     EXTRA_CONF_ARGS+=(
       "--target-os=darwin"
       "--arch=arm64"
+      "--enable-cross-compile"
+      "--cc=clang"
+      "--extra-cflags=-arch arm64 -mmacosx-version-min=${MACOS_MIN_VERSION} -isysroot ${SDK_PATH}"
+      "--extra-ldflags=-arch arm64 -mmacosx-version-min=${MACOS_MIN_VERSION} -isysroot ${SDK_PATH}"
+    )
+    ;;
+
+  macos-x86_64)
+    # Intel Mac (x86_64), cross-compiled from Apple Silicon runners via -arch.
+    SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+    EXTRA_CONF_ARGS+=(
+      "--target-os=darwin"
+      "--arch=x86_64"
+      "--enable-cross-compile"
+      "--cc=clang"
+      "--extra-cflags=-arch x86_64 -mmacosx-version-min=${MACOS_MIN_VERSION} -isysroot ${SDK_PATH}"
+      "--extra-ldflags=-arch x86_64 -mmacosx-version-min=${MACOS_MIN_VERSION} -isysroot ${SDK_PATH}"
     )
     ;;
 
@@ -178,7 +200,7 @@ if [[ "${PRESET_ENABLE_HW:-0}" == "1" ]]; then
           ;;
       esac
       ;;
-    macos|ios|ios-simulator)
+    macos|macos-x86_64|ios|ios-simulator)
       EXTRA_CONF_ARGS+=(
         "--enable-videotoolbox"
         "--enable-hwaccel=h264_videotoolbox,vp9_videotoolbox,mpeg4_videotoolbox"

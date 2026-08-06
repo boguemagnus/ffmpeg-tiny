@@ -34,6 +34,9 @@ jobs:
           - artifact: macos
             target: macos
             os: macos-14
+          - artifact: macos-x86_64
+            target: macos-x86_64
+            os: macos-14
           - artifact: ios
             target: ios
             os: macos-14
@@ -61,6 +64,15 @@ jobs:
             packages+=(mingw-w64 libz-mingw-w64-dev)
           fi
           sudo apt-get install -y "${packages[@]}"
+
+      # x86_64 FFmpeg needs nasm/yasm for SIMD asm. Apple Silicon (arm64) does not.
+      - name: Install nasm (macOS Intel)
+        if: matrix.target == 'macos-x86_64'
+        run: |
+          set -euo pipefail
+          brew install nasm
+          nasm -v
+        shell: bash
 
       # FFmpeg n7.1 needs vulkan >= 1.3.277; Ubuntu 24.04 libvulkan-dev is ~1.3.275.
       # Headers only — no GPU required on the runner.
